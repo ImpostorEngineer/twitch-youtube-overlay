@@ -223,12 +223,10 @@ export default function PlayerClient() {
   }, []);
 
   useEffect(() => {
-    document.title = currentTitle
-      ? `Playing: ${currentTitle}`
-      : "Player Control";
+    document.title = currentTitle ? `Playing: ${currentTitle}` : 'Player Control';
 
     return () => {
-      document.title = "Player Control";
+      document.title = 'Player Control';
     };
   }, [currentTitle]);
 
@@ -419,9 +417,9 @@ export default function PlayerClient() {
                       <img
                         src={hiddenThumbnail}
                         alt={`${currentTitle} thumbnail`}
-                        className='h-full w-full object-cover opacity-80'
+                        className='h-full w-full object-cover'
                       />
-                      <div className='absolute inset-0 bg-[linear-gradient(180deg,_rgba(2,6,23,0.12),_rgba(2,6,23,0.72))]' />
+                      <div className='absolute inset-0' />
                     </>
                   ) : (
                     <div className='text-sm uppercase tracking-[0.3em] text-slate-500'>Video hidden</div>
