@@ -12,6 +12,8 @@ export default function OverlayClient() {
 
   useEffect(() => {
     let mounted = true;
+    const previousHtmlBackground = document.documentElement.style.background;
+    const previousBodyBackground = document.body.style.background;
 
     async function refresh() {
       try {
@@ -28,12 +30,17 @@ export default function OverlayClient() {
       }
     }
 
+    document.documentElement.style.background = "transparent";
+    document.body.style.background = "transparent";
+
     refresh();
     const intervalId = window.setInterval(refresh, POLL_INTERVAL);
 
     return () => {
       mounted = false;
       window.clearInterval(intervalId);
+      document.documentElement.style.background = previousHtmlBackground;
+      document.body.style.background = previousBodyBackground;
     };
   }, []);
 
