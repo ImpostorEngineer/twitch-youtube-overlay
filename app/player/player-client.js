@@ -395,14 +395,14 @@ export default function PlayerClient() {
   return (
     <main className='flex min-h-screen items-center bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.16),_transparent_28%),linear-gradient(160deg,_#020617,_#0f172a_45%,_#111827)] px-4 py-6 text-white lg:px-6'>
       <div className='mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]'>
-        <section className='rounded-[2rem] border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-cyan-950/30 backdrop-blur xl:p-6'>
+        <section className='relative z-0 rounded-[2rem] border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-cyan-950/30 backdrop-blur xl:p-6'>
           <div>
             <p className='text-sm uppercase tracking-[0.28em] text-cyan-200/80'>Control Room</p>
             <h1 className='mt-2 text-3xl font-semibold'>YouTube music player</h1>
           </div>
 
           <div className='mt-5 overflow-hidden rounded-[1.5rem] border border-white/10 bg-black'>
-            <div className='relative aspect-video w-full max-h-[42vh] min-h-[15rem]'>
+            <div className='youtube-frame relative aspect-video w-full max-h-[42vh] min-h-[15rem] overflow-hidden rounded-[1.5rem]'>
               <div
                 ref={containerRef}
                 className={`youtube-player-shell absolute inset-0 h-full w-full transition-opacity duration-300 ${

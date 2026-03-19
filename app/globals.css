@@ -59,10 +59,26 @@ body {
   background-clip: padding-box;
 }
 
+.youtube-frame {
+  isolation: isolate;
+  contain: paint;
+}
+
 .youtube-player-shell,
 .youtube-player-shell iframe {
   height: 100% !important;
   width: 100% !important;
+}
+
+.youtube-player-shell {
+  overflow: hidden;
+}
+
+.youtube-player-shell iframe {
+  display: block;
+  border: 0;
+  transform: translateZ(0);
+  clip-path: inset(0 round 1.5rem);
 }
 
 a,
