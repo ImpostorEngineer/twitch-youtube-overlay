@@ -1,4 +1,5 @@
-import OverlayClient from "./overlay-client";
+import { redirect } from "next/navigation";
+import { getDefaultRoom } from "@/lib/rooms";
 
 export const metadata = {
   title: "OBS Overlay",
@@ -6,5 +7,5 @@ export const metadata = {
 };
 
 export default function OverlayPage() {
-  return <OverlayClient />;
+  redirect(`/overlay/${getDefaultRoom().id}`);
 }

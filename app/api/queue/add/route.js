@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { addToQueue } from "@/lib/queue";
+import { assertRoomToken } from "@/lib/rooms";
 import { extractVideoId, fetchVideoDetails } from "@/lib/youtube";
 
 export async function POST(request) {
   try {
     const body = await request.json();
+    assertRoomToken(body.roomId, body.token);
     let video = body.video;
 
     if (!video && body.input) {
@@ -21,7 +23,7 @@ export async function POST(request) {
       }
     }
 
-    const result = addToQueue(video, {
+    const result = addToQueue(body.roomId, video, {
       requestedBy: body.requestedBy,
       source: body.source,
       insertAfterCurrent: body.insertAfterCurrent ?? true,

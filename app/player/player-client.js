@@ -49,14 +49,44 @@ function getHiddenThumbnail(videoId) {
   return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : '';
 }
 
+function getRoomInitials(name) {
+  return name
+    .split(/[\s_-]+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function RoomLogo({ room }) {
+  if (room.logoUrl) {
+    return (
+      <img
+        src={room.logoUrl}
+        alt={`${room.name} logo`}
+        className='h-14 w-14 rounded-2xl object-cover ring-1 ring-white/10'
+      />
+    );
+  }
+
+  return (
+    <div className='flex h-14 w-14 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_rgba(34,211,238,0.32),_rgba(15,23,42,0.95))] text-sm font-semibold uppercase tracking-[0.18em] text-cyan-50 ring-1 ring-white/10'>
+      {getRoomInitials(room.name)}
+    </div>
+  );
+}
+
 const emptyQueueState = {
   queue: [],
   currentIndex: 0,
+  playlistUrl: '',
   current: null,
   next: null,
 };
 
-export default function PlayerClient() {
+export default function PlayerClient({ room, editorToken = '' }) {
+  const roomId = room.id;
+  const canEdit = Boolean(editorToken);
   const playerRef = useRef(null);
   const containerRef = useRef(null);
   const currentVideoIdRef = useRef('');
@@ -67,9 +97,11 @@ export default function PlayerClient() {
   const [queueState, setQueueState] = useState(emptyQueueState);
   const [playlistStatus, setPlaylistStatus] = useState('');
   const [manualVideoInput, setManualVideoInput] = useState('');
+  const [playlistInput, setPlaylistInput] = useState('');
   const [isReady, setIsReady] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isAddingVideo, setIsAddingVideo] = useState(false);
+  const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   const [isVideoVisible, setIsVideoVisible] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [error, setError] = useState('');
@@ -94,11 +126,22 @@ export default function PlayerClient() {
     }
 
     try {
-      const response = await fetch('/api/queue', { cache: 'no-store' });
+      const response = await fetch(`/api/queue?roomId=${encodeURIComponent(roomId)}`, {
+        cache: 'no-store',
+      });
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to refresh queue state.');
+      }
+
       setQueueState(data);
-    } catch {
-      setError('Unable to refresh queue state.');
+
+      if (!playlistInput && data.playlistUrl) {
+        setPlaylistInput(data.playlistUrl);
+      }
+    } catch (refreshError) {
+      setError(refreshError.message || 'Unable to refresh queue state.');
     } finally {
       if (options.withSpinner) {
         setIsRefreshing(false);
@@ -107,14 +150,29 @@ export default function PlayerClient() {
   }
 
   async function skipQueue() {
+    if (!canEdit) {
+      return;
+    }
+
     try {
-      await fetch('/api/queue/skip', {
+      const response = await fetch('/api/queue/skip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId,
+          token: editorToken,
+        }),
       });
-      await refreshQueueRef.current?.();
-    } catch {
-      setError('Unable to skip the current song.');
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to skip the current song.');
+      }
+
+      setQueueState(data);
+      setError('');
+    } catch (skipError) {
+      setError(skipError.message || 'Unable to skip the current song.');
     }
   }
 
@@ -169,7 +227,7 @@ export default function PlayerClient() {
               setIsPlaying(false);
             }
 
-            if (event.data === window.YT.PlayerState.ENDED) {
+            if (event.data === window.YT.PlayerState.ENDED && canEdit) {
               await skipQueueRef.current?.();
             }
           },
@@ -188,7 +246,7 @@ export default function PlayerClient() {
       playerRef.current = null;
       loadedVideoIdRef.current = '';
     };
-  }, []);
+  }, [canEdit]);
 
   useEffect(() => {
     if (!isReady || !playerRef.current) {
@@ -220,58 +278,84 @@ export default function PlayerClient() {
     }, POLL_INTERVAL);
 
     return () => window.clearInterval(intervalId);
-  }, []);
+  }, [roomId]);
 
   useEffect(() => {
-    document.title = currentTitle ? `Playing: ${currentTitle}` : 'Player Control';
+    document.title = queueState.current?.title
+      ? `Playing: ${queueState.current.title} | ${room.name}`
+      : `${room.name} | Player`;
 
     return () => {
       document.title = 'Player Control';
     };
-  }, [currentTitle]);
+  }, [queueState.current?.title, room.name]);
 
-  async function loadPlaylist() {
-    setPlaylistStatus('Loading playlist...');
+  async function loadPlaylist(reloadCurrent = false) {
+    if (!canEdit) {
+      return;
+    }
+
+    setIsLoadingPlaylist(true);
+    setPlaylistStatus(reloadCurrent ? 'Reloading playlist...' : 'Loading playlist...');
     setError('');
 
     try {
-      const response = await fetch('/api/playlist', { cache: 'no-store' });
+      const response = await fetch('/api/playlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId,
+          token: editorToken,
+          playlistUrl: reloadCurrent ? '' : playlistInput,
+        }),
+      });
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || 'Playlist request failed.');
       }
 
-      const videos = Array.isArray(data.videos) ? data.videos : [];
-      await fetch('/api/queue/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videos }),
-      });
-
-      setPlaylistStatus(`Loaded ${videos.length} playlist items.`);
-      await refreshQueue();
+      setQueueState(data);
+      setPlaylistInput(data.playlistUrl || playlistInput);
+      setPlaylistStatus(`Loaded ${data.videos?.length || 0} playlist items.`);
     } catch (loadError) {
       setPlaylistStatus('');
       setError(loadError.message || 'Unable to load playlist.');
+    } finally {
+      setIsLoadingPlaylist(false);
     }
   }
 
   async function playPrevious() {
+    if (!canEdit) {
+      return;
+    }
+
     const previousIndex = queueState.currentIndex - 1;
     if (previousIndex < 0 || !queueState.queue[previousIndex]) {
       return;
     }
 
     try {
-      await fetch('/api/queue/set', {
+      const response = await fetch('/api/queue/set', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index: previousIndex }),
+        body: JSON.stringify({
+          roomId,
+          token: editorToken,
+          index: previousIndex,
+        }),
       });
-      await refreshQueue();
-    } catch {
-      setError('Unable to jump to the previous song.');
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to jump to the previous song.');
+      }
+
+      setQueueState(data);
+      setError('');
+    } catch (playError) {
+      setError(playError.message || 'Unable to jump to the previous song.');
     }
   }
 
@@ -293,11 +377,19 @@ export default function PlayerClient() {
   }
 
   async function playQueueItem(index) {
+    if (!canEdit) {
+      return;
+    }
+
     try {
       const response = await fetch('/api/queue/set', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index }),
+        body: JSON.stringify({
+          roomId,
+          token: editorToken,
+          index,
+        }),
       });
       const data = await response.json();
 
@@ -313,11 +405,19 @@ export default function PlayerClient() {
   }
 
   async function removeQueueItem(index) {
+    if (!canEdit) {
+      return;
+    }
+
     try {
       const response = await fetch('/api/queue/remove', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index }),
+        body: JSON.stringify({
+          roomId,
+          token: editorToken,
+          index,
+        }),
       });
       const data = await response.json();
 
@@ -333,9 +433,18 @@ export default function PlayerClient() {
   }
 
   async function shuffleQueue() {
+    if (!canEdit) {
+      return;
+    }
+
     try {
       const response = await fetch('/api/queue/shuffle', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId,
+          token: editorToken,
+        }),
       });
       const data = await response.json();
 
@@ -352,6 +461,10 @@ export default function PlayerClient() {
   }
 
   async function addManualVideo() {
+    if (!canEdit) {
+      return;
+    }
+
     const input = manualVideoInput.trim();
     if (!input) {
       return;
@@ -366,6 +479,8 @@ export default function PlayerClient() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          roomId,
+          token: editorToken,
           input,
           requestedBy: 'dashboard',
           source: 'manual',
@@ -393,16 +508,39 @@ export default function PlayerClient() {
   }
 
   return (
-    <main className='flex min-h-screen items-center bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.16),_transparent_28%),linear-gradient(160deg,_#020617,_#0f172a_45%,_#111827)] px-4 py-6 text-white lg:px-6'>
-      <div className='mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]'>
+    <main className='min-h-screen bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.16),_transparent_28%),linear-gradient(160deg,_#020617,_#0f172a_45%,_#111827)] px-4 py-6 text-white lg:px-6 lg:py-10'>
+      <div className='mx-auto grid w-full max-w-7xl gap-6 xl:grid-cols-[minmax(0,1.18fr)_minmax(24rem,0.82fr)]'>
         <section className='relative z-0 rounded-[2rem] border border-white/10 bg-slate-950/70 p-5 shadow-2xl shadow-cyan-950/30 backdrop-blur xl:p-6'>
-          <div>
-            <p className='text-sm uppercase tracking-[0.28em] text-cyan-200/80'>Control Room</p>
-            <h1 className='mt-2 text-3xl font-semibold'>YouTube music player</h1>
+          <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
+            <div className='flex items-center gap-4'>
+              <RoomLogo room={room} />
+              <div>
+                <p className='text-sm uppercase tracking-[0.28em] text-cyan-200/80'>Control Room</p>
+                <h1 className='mt-2 text-3xl font-semibold'>{room.name}</h1>
+                <p className='mt-2 text-sm text-slate-400'>Twitch room: @{room.id}</p>
+              </div>
+            </div>
+            <div className='flex flex-wrap gap-3'>
+              <button
+                onClick={() => setIsVideoVisible((visible) => !visible)}
+                className='rounded-full border border-cyan-400/50 px-5 py-2 font-semibold text-cyan-100 transition hover:bg-cyan-400/10'
+              >
+                {isVideoVisible ? 'Hide Video' : 'Show Video'}
+              </button>
+              {canEdit && (
+                <button
+                  onClick={() => void loadPlaylist(true)}
+                  disabled={isLoadingPlaylist || !queueState.playlistUrl}
+                  className='rounded-full border border-white/15 px-5 py-2 font-semibold transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50'
+                >
+                  Reload Playlist
+                </button>
+              )}
+            </div>
           </div>
 
           <div className='mt-5 overflow-hidden rounded-[1.5rem] border border-white/10 bg-black'>
-            <div className='youtube-frame relative aspect-video w-full max-h-[42vh] min-h-[15rem] overflow-hidden rounded-[1.5rem]'>
+            <div className='youtube-frame relative aspect-video w-full overflow-hidden rounded-[1.5rem]'>
               <div
                 ref={containerRef}
                 className={`youtube-player-shell absolute inset-0 h-full w-full transition-opacity duration-300 ${
@@ -413,14 +551,11 @@ export default function PlayerClient() {
               {!isVideoVisible && (
                 <div className='absolute inset-0 flex items-center justify-center overflow-hidden bg-slate-950'>
                   {hiddenThumbnail ? (
-                    <>
-                      <img
-                        src={hiddenThumbnail}
-                        alt={`${currentTitle} thumbnail`}
-                        className='h-full w-full object-cover'
-                      />
-                      <div className='absolute inset-0' />
-                    </>
+                    <img
+                      src={hiddenThumbnail}
+                      alt={`${currentTitle} thumbnail`}
+                      className='h-full w-full object-cover'
+                    />
                   ) : (
                     <div className='text-sm uppercase tracking-[0.3em] text-slate-500'>Video hidden</div>
                   )}
@@ -430,13 +565,24 @@ export default function PlayerClient() {
           </div>
 
           <div className='mt-4 flex flex-wrap items-center gap-3'>
-            <button
-              onClick={playPrevious}
-              className='flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-white/6 text-xl transition hover:bg-white/12'
-              aria-label='Previous song'
-            >
-              ⏮
-            </button>
+            {canEdit && (
+              <>
+                <button
+                  onClick={playPrevious}
+                  className='flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-white/6 text-xl transition hover:bg-white/12'
+                  aria-label='Previous song'
+                >
+                  ⏮
+                </button>
+                <button
+                  onClick={() => void skipQueue()}
+                  className='flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-white/6 text-xl transition hover:bg-white/12'
+                  aria-label='Skip song'
+                >
+                  ⏭
+                </button>
+              </>
+            )}
             <button
               onClick={togglePlayback}
               className='flex h-14 w-14 items-center justify-center rounded-full bg-red-600 text-2xl text-white transition hover:bg-red-500'
@@ -444,33 +590,17 @@ export default function PlayerClient() {
             >
               {isPlaying ? '❚❚' : '▶'}
             </button>
-            <button
-              onClick={() => void skipQueue()}
-              className='flex h-12 w-12 items-center justify-center rounded-full border border-white/12 bg-white/6 text-xl transition hover:bg-white/12'
-              aria-label='Skip song'
-            >
-              ⏭
-            </button>
-            <div className='ml-auto flex flex-wrap gap-3'>
-              <button
-                onClick={() => setIsVideoVisible((visible) => !visible)}
-                className='rounded-full border border-cyan-400/50 px-5 py-2 font-semibold text-cyan-100 transition hover:bg-cyan-400/10'
-              >
-                {isVideoVisible ? 'Hide Video' : 'Show Video'}
-              </button>
-              <button
-                onClick={loadPlaylist}
-                className='rounded-full border border-white/15 px-5 py-2 font-semibold transition hover:bg-white/10'
-              >
-                Reload Playlist
-              </button>
-            </div>
+            {!canEdit && (
+              <p className='rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300'>
+                Read-only view
+              </p>
+            )}
           </div>
 
-          <div className='mt-4 space-y-4'>
+          <div className='mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]'>
             <div className='rounded-[1.5rem] border border-white/10 bg-white/5 p-5 min-h-[15rem]'>
               <p className='text-sm uppercase tracking-[0.25em] text-slate-400'>Now playing</p>
-              <h2 className='mt-2 line-clamp-3 max-w-[34ch] overflow-hidden text-ellipsis break-words text-xl font-semibold leading-tight md:text-2xl'>
+              <h2 className='mt-2 line-clamp-3 max-w-[36ch] overflow-hidden text-ellipsis break-words text-xl font-semibold leading-tight md:text-2xl'>
                 {currentTitle}
               </h2>
               <p className='mt-2 text-sm text-slate-400'>
@@ -481,28 +611,53 @@ export default function PlayerClient() {
               </p>
             </div>
 
-            <div className='rounded-[1.5rem] border border-white/10 bg-white/5 p-5'>
-              <label className='block text-sm font-medium text-slate-300'>Add video by ID or YouTube URL</label>
-              <div className='mt-2 flex flex-col gap-2 sm:flex-row'>
-                <input
-                  value={manualVideoInput}
-                  onChange={(event) => setManualVideoInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      void addManualVideo();
-                    }
-                  }}
-                  placeholder='dQw4w9WgXcQ or https://youtu.be/...'
-                  className='min-w-0 flex-1 rounded-full border border-white/10 bg-slate-900 px-4 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-cyan-300'
-                />
-                <button
-                  onClick={addManualVideo}
-                  disabled={isAddingVideo}
-                  className='rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60'
-                >
-                  {isAddingVideo ? 'Adding...' : 'Add Video'}
-                </button>
-              </div>
+            <div className='space-y-4'>
+              {canEdit && (
+                <div className='rounded-[1.5rem] border border-white/10 bg-white/5 p-5'>
+                  <label className='block text-sm font-medium text-slate-300'>YouTube playlist URL</label>
+                  <div className='mt-2 flex flex-col gap-2'>
+                    <input
+                      value={playlistInput}
+                      onChange={(event) => setPlaylistInput(event.target.value)}
+                      placeholder='https://www.youtube.com/playlist?list=...'
+                      className='min-w-0 rounded-full border border-white/10 bg-slate-900 px-4 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-cyan-300'
+                    />
+                    <button
+                      onClick={() => void loadPlaylist(false)}
+                      disabled={isLoadingPlaylist}
+                      className='rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60'
+                    >
+                      {isLoadingPlaylist ? 'Loading...' : 'Load Playlist'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {canEdit && (
+                <div className='rounded-[1.5rem] border border-white/10 bg-white/5 p-5'>
+                  <label className='block text-sm font-medium text-slate-300'>Add video by ID or YouTube URL</label>
+                  <div className='mt-2 flex flex-col gap-2 sm:flex-row'>
+                    <input
+                      value={manualVideoInput}
+                      onChange={(event) => setManualVideoInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          void addManualVideo();
+                        }
+                      }}
+                      placeholder='dQw4w9WgXcQ or https://youtu.be/...'
+                      className='min-w-0 flex-1 rounded-full border border-white/10 bg-slate-900 px-4 py-2 text-sm outline-none placeholder:text-slate-500 focus:border-cyan-300'
+                    />
+                    <button
+                      onClick={addManualVideo}
+                      disabled={isAddingVideo}
+                      className='rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60'
+                    >
+                      {isAddingVideo ? 'Adding...' : 'Add Video'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -517,6 +672,7 @@ export default function PlayerClient() {
           queue={queueState.queue}
           currentIndex={queueState.currentIndex}
           isRefreshing={isRefreshing}
+          canEdit={canEdit}
           onPlayItem={playQueueItem}
           onRemoveItem={removeQueueItem}
           onRefresh={() => void refreshQueue({ withSpinner: true })}

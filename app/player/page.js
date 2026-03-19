@@ -1,13 +1,11 @@
-import { ensureTwitchService } from '@/lib/twitch';
-import PlayerClient from './player-client';
+import { redirect } from "next/navigation";
+import { getDefaultRoom } from "@/lib/rooms";
 
 export const metadata = {
-  title: 'YouTube Player',
-  description: 'YouTube queue and Twitch song request control room v0.2',
+  title: "YouTube Player",
+  description: "YouTube queue and Twitch song request control room",
 };
 
 export default function PlayerPage() {
-  ensureTwitchService();
-
-  return <PlayerClient />;
+  redirect(`/room/${getDefaultRoom().id}`);
 }
