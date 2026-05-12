@@ -565,6 +565,13 @@ export default function PlayerClient({ room, editorToken = '' }) {
           </div>
 
           <div className='mt-4 flex flex-wrap items-center gap-3'>
+            <button
+              onClick={togglePlayback}
+              className='flex h-14 w-14 items-center justify-center rounded-full bg-red-600 text-2xl text-white transition hover:bg-red-500'
+              aria-label={isPlaying ? 'Pause current song' : 'Play current song'}
+            >
+              {isPlaying ? '❚❚' : '▶'}
+            </button>
             {canEdit && (
               <>
                 <button
@@ -583,13 +590,6 @@ export default function PlayerClient({ room, editorToken = '' }) {
                 </button>
               </>
             )}
-            <button
-              onClick={togglePlayback}
-              className='flex h-14 w-14 items-center justify-center rounded-full bg-red-600 text-2xl text-white transition hover:bg-red-500'
-              aria-label={isPlaying ? 'Pause current song' : 'Play current song'}
-            >
-              {isPlaying ? '❚❚' : '▶'}
-            </button>
             {!canEdit && (
               <p className='rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300'>
                 Read-only view
